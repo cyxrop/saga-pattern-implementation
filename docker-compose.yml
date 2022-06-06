@@ -53,6 +53,12 @@ services:
     depends_on:
       - zookeeper
 
+  memcached:
+    container_name: homework_3_memcached
+    image: 'bitnami/memcached:latest'
+    ports:
+      - "11211:11211"
+
   orders_service:
     container_name: orders_service
     build:
@@ -86,6 +92,7 @@ services:
       context: .
     ports:
       - "8087:8087"
+      - "8088:8088"
     env_file:
       - ./billing_service/docker/.env
     depends_on:

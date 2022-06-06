@@ -12,3 +12,11 @@ migrate-orders:
 .PHONY: migrate-billing
 migrate-billing:
 	goose -dir=./billing_service/migrations postgres "user=postgres password=postgres dbname=homework_3_billing_service sslmode=disable" up
+
+.PHONY: proto-gen-billing
+proto-gen-billing:
+	protoc -I ./billing_service/proto \
+	-I ${GOPATH}/src/github.com/googleapis \
+	--go_out=./billing_service/pkg --go_opt=paths=source_relative \
+	--go-grpc_out=./billing_service/pkg --go-grpc_opt=paths=source_relative \
+	./billing_service/proto/api/invoices.proto

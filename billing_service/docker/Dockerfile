@@ -13,6 +13,6 @@ WORKDIR /root/
 
 COPY --from=builder /root/app ./app
 
-EXPOSE 8087
+EXPOSE 8087 8088
 
 CMD ["./app"]

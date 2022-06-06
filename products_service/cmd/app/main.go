@@ -62,6 +62,7 @@ func main() {
 
 	if err = consumer.Consume(ctx, strings.Split(brokers, ";"), ps); err != nil {
 		fmt.Printf("run consume error: %s", err)
+		return
 	}
 
 	signals := make(chan os.Signal)

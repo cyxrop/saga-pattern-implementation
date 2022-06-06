@@ -5,6 +5,7 @@ import (
 	"expvar"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -12,17 +13,24 @@ import (
 	"strings"
 	"syscall"
 
+	"gitlab.ozon.dev/cyxrop/homework-3/billing_service/internal/app/cache"
+	appGrpc "gitlab.ozon.dev/cyxrop/homework-3/billing_service/internal/app/grpc/invoice"
+	"gitlab.ozon.dev/cyxrop/homework-3/billing_service/internal/app/mw"
 	repository "gitlab.ozon.dev/cyxrop/homework-3/billing_service/internal/app/repository/invoice"
 	"gitlab.ozon.dev/cyxrop/homework-3/billing_service/internal/app/service"
 	"gitlab.ozon.dev/cyxrop/homework-3/billing_service/internal/db"
 	"gitlab.ozon.dev/cyxrop/homework-3/billing_service/internal/queue/consumer"
+	"gitlab.ozon.dev/cyxrop/homework-3/billing_service/pkg/api"
 	"gitlab.ozon.dev/cyxrop/homework-3/billing_service/pkg/metrics"
+	"google.golang.org/grpc"
 )
 
 const (
 	EnvDBConn      = "DB_CONN"
 	EnvBrokers     = "BROKERS"
 	EnvMetricsHost = "METRICS_HOST"
+	EnvGrpcHost    = "GRPC_HOST"
+	EnvCacheHosts  = "CACHE_HOSTS"
 )
 
 func main() {
@@ -43,6 +51,16 @@ func main() {
 		log.Fatalf("%s is empty", EnvMetricsHost)
 	}
 
+	grpcHost := os.Getenv(EnvGrpcHost)
+	if grpcHost == "" {
+		log.Fatalf("%s is empty", EnvGrpcHost)
+	}
+
+	cacheHosts := os.Getenv(EnvCacheHosts)
+	if grpcHost == "" {
+		log.Fatalf("%s is empty", EnvCacheHosts)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	dbConn, err := db.New(ctx, dbConnStr)
 	if err != nil {
@@ -50,39 +68,58 @@ func main() {
 	}
 	defer dbConn.Close()
 
-	ir := repository.New(dbConn)
-	invoiceService := service.New(ir)
+	c := cache.NewCache(strings.Split(cacheHosts, ";"))
+	invoicesRepo := repository.New(dbConn)
+	invoiceService := service.New(invoicesRepo, c)
+
+	invoiceServer := appGrpc.NewInvoiceServiceServer(invoiceService)
+	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(mw.LogInterceptor))
+	api.RegisterInvoiceServiceServer(grpcServer, invoiceServer)
+
+	lis, err := net.Listen("tcp", grpcHost)
+	if err != nil {
+		log.Printf("listen: %v\n", err)
+		return
+	}
 
 	if err = consumer.Consume(ctx, strings.Split(brokers, ";"), invoiceService); err != nil {
 		fmt.Printf("run consume error: %s", err)
+		return
 	}
 
+	errCh := make(chan error)
 	signals := make(chan os.Signal)
 	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT)
+
+	runMetricsSrv(errCh, metricsHost)
+
+	go func() {
+		defer close(errCh)
+		log.Printf("Run GRPC server in %q...\n", grpcHost)
+		if err = grpcServer.Serve(lis); err != nil {
+			errCh <- fmt.Errorf("serve grpc server failed: %w", err)
+		}
+	}()
 
 	select {
 	case <-signals:
 		log.Println("Graceful shutdown on syscall")
 		cancel()
-	case err = <-runMetricsSrv(metricsHost):
-		log.Printf("Graceful shutdown on mitrics server err: %s", err)
+	case err = <-errCh:
+		log.Printf("Graceful shutdown on err: %s", err)
 		cancel()
 	}
 }
 
-func runMetricsSrv(host string) <-chan error {
+func runMetricsSrv(errCh chan<- error, host string) {
 	expvar.Publish("Goroutines", &metrics.Goroutines{})
 
-	errs := make(chan error)
 	srv := &http.Server{Addr: host}
-
 	go func() {
-		defer close(errs)
+		defer close(errCh)
 
 		if err := srv.ListenAndServe(); err != nil {
-			errs <- err
+			errCh <- fmt.Errorf("serve metrics server failed: %w", err)
 		}
 	}()
-
-	return errs
 }
