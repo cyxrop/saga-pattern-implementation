@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+option go_package = "gitlab.ozon.dev/cyxrop/homework-3/billing_service/api";
+
+package api;
+
+import "google/protobuf/timestamp.proto";
+import "google/api/annotations.proto";
+
+message ID {
+  int64 ID = 1;
+}
+
+enum InvoiceStatus {
+    PendingPayment = 0;
+    Paid = 1;
+    Failed = 2;
+}
+
+message InvoiceResponse {
+  int64 ID = 1;
+  int64 OrderID = 2;
+  int64 Amount = 3;
+  InvoiceStatus Status = 4;
+  google.protobuf.Timestamp CreatedAt = 5;
+}
+
+service InvoiceService {
+  rpc Get(ID) returns (InvoiceResponse) {}
+}

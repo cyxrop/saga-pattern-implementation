@@ -1,0 +1,6 @@
+.idea
+db_data
+kafka_data
+/products_service/docker/.env
+/billing_service/docker/.env
+/orders_service/docker/.env

@@ -1,0 +1,100 @@
+version: "3.3"
+
+services:
+  db:
+    container_name: homework_3_db
+    image: postgres:13.3
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - ./db_data:/var/lib/postgresql
+    ports:
+      - "5432:5432"
+
+  kafka-ui:
+    container_name: homework_3_kafka_ui
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=local
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka-1:9092
+      - KAFKA_CLUSTERS_0_ZOOKEEPER=zookeeper:2181
+
+  zookeeper:
+    container_name: homework_3_kafka_zookeeper
+    image: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+
+  kafka-1:
+    container_name: homework_3_kafka_1
+    image: wurstmeister/kafka
+    ports:
+      - "9095:9094"
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_LISTENERS: INTERNAL://kafka-1:9092,OUTSIDE://kafka-1:9094
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-1:9092,OUTSIDE://localhost:9095
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,OUTSIDE:PLAINTEXT
+
+      KAFKA_LOG_DIRS: /kafka/logs
+      KAFKA_BROKER_ID: 500
+      KAFKA_offsets_topic_replication_factor: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./kafka_data/500:/kafka
+    depends_on:
+      - zookeeper
+
+  memcached:
+    container_name: homework_3_memcached
+    image: 'bitnami/memcached:latest'
+    ports:
+      - "11211:11211"
+
+  orders_service:
+    container_name: orders_service
+    build:
+      dockerfile: ./orders_service/docker/Dockerfile
+      context: .
+    ports:
+      - "8085:8085"
+    env_file:
+      - ./orders_service/docker/.env
+    depends_on:
+      - db
+      - kafka-1
+
+  products_service:
+    container_name: products_service
+    build:
+      dockerfile: ./products_service/docker/Dockerfile
+      context: .
+    ports:
+      - "8086:8086"
+    env_file:
+      - ./products_service/docker/.env
+    depends_on:
+      - db
+      - kafka-1
+
+  billing_service:
+    container_name: billing_service
+    build:
+      dockerfile: ./billing_service/docker/Dockerfile
+      context: .
+    ports:
+      - "8087:8087"
+      - "8088:8088"
+    env_file:
+      - ./billing_service/docker/.env
+    depends_on:
+      - db
+      - kafka-1
